@@ -65,7 +65,7 @@ export function LoginForm() {
               <img
                 src="https://tzattbqdbdhieapvyhrw.supabase.co/storage/v1/object/public/system/system/logo.png"
                 alt="System Logo"
-                className="h-20 w-20 object-contain"
+                className="h-40 w-40 object-contain"
               />
             </div>
             
