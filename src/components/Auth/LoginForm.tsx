@@ -62,17 +62,11 @@ export function LoginForm() {
           {/* Logo and Title */}
           <div className="text-center">
             <div className="flex justify-center mb-6">
-              {settings.logo_url ? (
-                <img
-                  src={'https://tzattbqdbdhieapvyhrw.supabase.co/storage/v1/object/public/system/system/logo.png'}
-                  alt="System Logo"
-                  className="h-20 w-20 object-contain"
-                />
-              ) : (
-                <div className="h-20 w-20 bg-blue-600 rounded-full flex items-center justify-center">
-                  <Building2 className="h-10 w-10 text-white" />
-                </div>
-              )}
+              <img
+                src="https://tzattbqdbdhieapvyhrw.supabase.co/storage/v1/object/public/system/system/logo.png"
+                alt="System Logo"
+                className="h-20 w-20 object-contain"
+              />
             </div>
             
             <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
