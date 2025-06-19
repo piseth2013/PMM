@@ -64,7 +64,7 @@ export function LoginForm() {
             <div className="flex justify-center mb-6">
               {settings.logo_url ? (
                 <img
-                  src={https://tzattbqdbdhieapvyhrw.supabase.co/storage/v1/object/public/system/system/logo.png}
+                  src={'https://tzattbqdbdhieapvyhrw.supabase.co/storage/v1/object/public/system/system/logo.png'}
                   alt="System Logo"
                   className="h-20 w-20 object-contain"
                 />
