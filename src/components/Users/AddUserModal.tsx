@@ -123,7 +123,7 @@ export function AddUserModal({ isOpen, onClose, onSuccess, availableRoles }: Add
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-semibold text-gray-900 flex items-center">
             <User className="h-5 w-5 mr-2 text-blue-600" />
-            Add New User
+            Add User
           </h3>
           <button
             onClick={handleClose}
@@ -301,7 +301,7 @@ export function AddUserModal({ isOpen, onClose, onSuccess, availableRoles }: Add
                   Creating...
                 </div>
               ) : (
-                'Create User'
+                'Add User'
               )}
             </button>
           </div>
