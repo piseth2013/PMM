@@ -17,7 +17,11 @@ import {
   User,
   Mail,
   Calendar,
-  Clock
+  Clock,
+  AlertCircle,
+  CheckCircle,
+  Users,
+  Key
 } from 'lucide-react'
 
 interface AdminUser {
@@ -31,6 +35,9 @@ interface AdminUser {
   role_name?: string
   role_display_name?: string
   role_permissions?: any
+  activity_status?: string
+  invited_by_name?: string
+  invited_by_email?: string
 }
 
 interface Role {
@@ -42,11 +49,18 @@ interface Role {
   is_active: boolean
 }
 
+interface UserPermissions {
+  can_manage_super_admins?: boolean
+  can_manage_admins?: boolean
+  [key: string]: any
+}
+
 export function AdminUsers() {
   const { t } = useLanguage()
   const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<AdminUser[]>([])
   const [roles, setRoles] = useState<Role[]>([])
+  const [userPermissions, setUserPermissions] = useState<UserPermissions>({})
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRole, setSelectedRole] = useState<string>('')
@@ -78,13 +92,30 @@ export function AdminUsers() {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
   useEffect(() => {
-    loadUsers()
-    loadRoles()
+    loadInitialData()
   }, [])
+
+  const loadInitialData = async () => {
+    await Promise.all([
+      loadUsers(),
+      loadRoles(),
+      loadUserPermissions()
+    ])
+  }
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
     setTimeout(() => setMessage(null), 5000)
+  }
+
+  const loadUserPermissions = async () => {
+    try {
+      const { data, error } = await supabase.rpc('get_user_permissions')
+      if (error) throw error
+      setUserPermissions(data || {})
+    } catch (error) {
+      console.error('Error loading user permissions:', error)
+    }
   }
 
   const loadRoles = async () => {
@@ -120,17 +151,52 @@ export function AdminUsers() {
     }
   }
 
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const validateUserForm = () => {
+    if (!newUser.email.trim()) {
+      showMessage('error', 'Email is required')
+      return false
+    }
+    
+    if (!newUser.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      showMessage('error', 'Please enter a valid email address')
+      return false
+    }
+    
+    if (!newUser.full_name.trim()) {
+      showMessage('error', 'Full name is required')
+      return false
+    }
     
     if (newUser.password.length < 6) {
       showMessage('error', 'Password must be at least 6 characters long')
-      return
+      return false
     }
+    
+    if (!newUser.role_id) {
+      showMessage('error', 'Please select a role')
+      return false
+    }
+
+    return true
+  }
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!validateUserForm()) return
 
     setAddingUser(true)
 
     try {
+      // Validate user creation on the backend
+      const { error: validationError } = await supabase.rpc('validate_user_creation', {
+        p_email: newUser.email,
+        p_full_name: newUser.full_name,
+        p_role_id: newUser.role_id
+      })
+
+      if (validationError) throw validationError
+
       // Create user in Supabase Auth with admin metadata
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: newUser.email,
@@ -165,10 +231,9 @@ export function AdminUsers() {
 
       if (dbError) throw dbError
 
-      showMessage('success', 'User added successfully')
+      showMessage('success', `User "${newUser.full_name}" has been created successfully`)
       setShowAddModal(false)
-      setNewUser({ email: '', full_name: '', password: '', role_id: '' })
-      setShowPassword(false)
+      resetAddUserForm()
       loadUsers()
     } catch (error: any) {
       console.error('Error adding user:', error)
@@ -176,6 +241,11 @@ export function AdminUsers() {
     } finally {
       setAddingUser(false)
     }
+  }
+
+  const resetAddUserForm = () => {
+    setNewUser({ email: '', full_name: '', password: '', role_id: '' })
+    setShowPassword(false)
   }
 
   const handleEditUser = async (e: React.FormEvent) => {
@@ -216,7 +286,7 @@ export function AdminUsers() {
 
       if (dbError) throw dbError
 
-      showMessage('success', 'User updated successfully')
+      showMessage('success', `User "${editUser.full_name}" has been updated successfully`)
       setShowEditModal(false)
       setEditingUser(null)
       loadUsers()
@@ -238,7 +308,7 @@ export function AdminUsers() {
       const { error: authError } = await supabase.auth.admin.deleteUser(deletingUser.id)
       if (authError) throw authError
 
-      showMessage('success', 'User deleted successfully')
+      showMessage('success', `User "${deletingUser.full_name}" has been deleted successfully`)
       setShowDeleteModal(false)
       setDeletingUser(null)
       loadUsers()
@@ -262,12 +332,10 @@ export function AdminUsers() {
 
   const openDeleteModal = (user: AdminUser) => {
     setDeletingUser(user)
-    setShowDeleteModal(false)
     setShowDeleteModal(true)
   }
 
   const getRoleDisplayName = (user: AdminUser) => {
-    // Prioritize role_display_name, then role_name, then fallback
     return user.role_display_name || user.role_name || 'Unknown Role'
   }
 
@@ -275,14 +343,48 @@ export function AdminUsers() {
     switch (roleName?.toLowerCase()) {
       case 'super_admin':
       case 'super admin':
-        return 'bg-purple-100 text-purple-800'
+        return 'bg-purple-100 text-purple-800 border-purple-200'
       case 'admin':
-        return 'bg-blue-100 text-blue-800'
+        return 'bg-blue-100 text-blue-800 border-blue-200'
       case 'moderator':
-        return 'bg-green-100 text-green-800'
+        return 'bg-green-100 text-green-800 border-green-200'
+      case 'editor':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200'
       default:
-        return 'bg-gray-100 text-gray-800'
+        return 'bg-gray-100 text-gray-800 border-gray-200'
     }
+  }
+
+  const getActivityStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'active':
+        return 'text-green-600'
+      case 'recently active':
+        return 'text-yellow-600'
+      case 'inactive':
+        return 'text-red-600'
+      default:
+        return 'text-gray-600'
+    }
+  }
+
+  const canManageUser = (user: AdminUser) => {
+    // Super admins can manage anyone
+    if (userPermissions.can_manage_super_admins) return true
+    
+    // Admins can manage non-super-admin users
+    if (userPermissions.can_manage_admins && user.role_name !== 'super_admin') return true
+    
+    return false
+  }
+
+  const getAvailableRoles = () => {
+    if (userPermissions.can_manage_super_admins) {
+      return roles // Super admins can assign any role
+    }
+    
+    // Regular admins cannot assign super_admin role
+    return roles.filter(role => role.name !== 'super_admin')
   }
 
   const filteredUsers = users.filter(user => {
@@ -312,11 +414,68 @@ export function AdminUsers() {
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm"
         >
           <UserPlus className="h-4 w-4 mr-2" />
           Add New User
         </button>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <Users className="h-8 w-8 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Total Users</p>
+              <p className="text-2xl font-semibold text-gray-900">{users.length}</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <Shield className="h-8 w-8 text-purple-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Super Admins</p>
+              <p className="text-2xl font-semibold text-gray-900">
+                {users.filter(u => u.role_name === 'super_admin').length}
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <Key className="h-8 w-8 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Admins</p>
+              <p className="text-2xl font-semibold text-gray-900">
+                {users.filter(u => u.role_name === 'admin').length}
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <CheckCircle className="h-8 w-8 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Active Users</p>
+              <p className="text-2xl font-semibold text-gray-900">
+                {users.filter(u => u.activity_status === 'Active').length}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Message */}
@@ -329,9 +488,9 @@ export function AdminUsers() {
           <div className="flex">
             <div className="flex-shrink-0">
               {message.type === 'success' ? (
-                <div className="h-5 w-5 text-green-400">✓</div>
+                <CheckCircle className="h-5 w-5 text-green-400" />
               ) : (
-                <div className="h-5 w-5 text-red-400">✕</div>
+                <AlertCircle className="h-5 w-5 text-red-400" />
               )}
             </div>
             <div className="ml-3">
@@ -386,6 +545,9 @@ export function AdminUsers() {
                   Role
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Created
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -416,13 +578,23 @@ export function AdminUsers() {
                           <Mail className="h-3 w-3 mr-1" />
                           {user.email}
                         </div>
+                        {user.invited_by_name && (
+                          <div className="text-xs text-gray-400">
+                            Invited by {user.invited_by_name}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(user.role_name || '')}`}>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getRoleBadgeColor(user.role_name || '')}`}>
                       <Shield className="h-3 w-3 mr-1" />
                       {getRoleDisplayName(user)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`text-sm font-medium ${getActivityStatusColor(user.activity_status || '')}`}>
+                      {user.activity_status || 'Unknown'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -438,22 +610,26 @@ export function AdminUsers() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex items-center justify-end space-x-2">
-                      <button
-                        onClick={() => openEditModal(user)}
-                        className="text-blue-600 hover:text-blue-900 p-1 rounded-md hover:bg-blue-50 transition-colors"
-                        title="Edit user"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => openDeleteModal(user)}
-                        className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
-                        title="Delete user"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+                    {canManageUser(user) && (
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          onClick={() => openEditModal(user)}
+                          className="text-blue-600 hover:text-blue-900 p-1 rounded-md hover:bg-blue-50 transition-colors"
+                          title="Edit user"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        {user.id !== currentUser?.id && (
+                          <button
+                            onClick={() => openDeleteModal(user)}
+                            className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
+                            title="Delete user"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -492,8 +668,7 @@ export function AdminUsers() {
               <button
                 onClick={() => {
                   setShowAddModal(false)
-                  setNewUser({ email: '', full_name: '', password: '', role_id: '' })
-                  setShowPassword(false)
+                  resetAddUserForm()
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -572,7 +747,7 @@ export function AdminUsers() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">Select a role</option>
-                  {roles.map((role) => (
+                  {getAvailableRoles().map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.display_name}
                       {role.description && ` - ${role.description}`}
@@ -586,8 +761,7 @@ export function AdminUsers() {
                   type="button"
                   onClick={() => {
                     setShowAddModal(false)
-                    setNewUser({ email: '', full_name: '', password: '', role_id: '' })
-                    setShowPassword(false)
+                    resetAddUserForm()
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
@@ -601,10 +775,10 @@ export function AdminUsers() {
                   {addingUser ? (
                     <div className="flex items-center">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Adding...
+                      Creating...
                     </div>
                   ) : (
-                    'Add User'
+                    'Create User'
                   )}
                 </button>
               </div>
@@ -664,7 +838,7 @@ export function AdminUsers() {
                   onChange={(e) => setEditUser(prev => ({ ...prev, role_id: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  {roles.map((role) => (
+                  {getAvailableRoles().map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.display_name}
                       {role.description && ` - ${role.description}`}
@@ -725,9 +899,11 @@ export function AdminUsers() {
                   <p className="text-sm text-gray-500">{deletingUser.email}</p>
                 </div>
               </div>
-              <p className="text-sm text-gray-600">
-                Are you sure you want to delete this user? This action cannot be undone and will remove the user from both the system and authentication.
-              </p>
+              <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                <p className="text-sm text-red-800">
+                  <strong>Warning:</strong> This action cannot be undone. This will permanently delete the user account and remove all associated data.
+                </p>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-3">
