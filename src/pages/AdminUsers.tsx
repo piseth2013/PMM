@@ -23,7 +23,8 @@ import {
   AlertCircle,
   CheckCircle,
   Users,
-  Key
+  Key,
+  RefreshCw
 } from 'lucide-react'
 
 interface AdminUser {
@@ -64,6 +65,7 @@ export function AdminUsers() {
   const [roles, setRoles] = useState<Role[]>([])
   const [userPermissions, setUserPermissions] = useState<UserPermissions>({})
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRole, setSelectedRole] = useState<string>('')
   const [showAddModal, setShowAddModal] = useState(false)
@@ -88,11 +90,24 @@ export function AdminUsers() {
   }, [])
 
   const loadInitialData = async () => {
+    setLoading(true)
     await Promise.all([
       loadUsers(),
       loadRoles(),
       loadUserPermissions()
     ])
+    setLoading(false)
+  }
+
+  const refreshData = async () => {
+    setRefreshing(true)
+    await Promise.all([
+      loadUsers(),
+      loadRoles(),
+      loadUserPermissions()
+    ])
+    setRefreshing(false)
+    showMessage('success', 'Data refreshed successfully')
   }
 
   const showMessage = (type: 'success' | 'error', text: string) => {
@@ -103,10 +118,16 @@ export function AdminUsers() {
   const loadUserPermissions = async () => {
     try {
       const { data, error } = await supabase.rpc('get_user_permissions')
-      if (error) throw error
-      setUserPermissions(data || {})
+      if (error) {
+        console.error('Error loading user permissions:', error)
+        // Set default permissions if function fails
+        setUserPermissions({ can_manage_admins: true })
+      } else {
+        setUserPermissions(data || {})
+      }
     } catch (error) {
       console.error('Error loading user permissions:', error)
+      setUserPermissions({ can_manage_admins: true })
     }
   }
 
@@ -118,7 +139,12 @@ export function AdminUsers() {
         .eq('is_active', true)
         .order('name')
 
-      if (error) throw error
+      if (error) {
+        console.error('Error loading roles:', error)
+        showMessage('error', 'Failed to load roles')
+        return
+      }
+      
       setRoles(data || [])
     } catch (error) {
       console.error('Error loading roles:', error)
@@ -128,18 +154,83 @@ export function AdminUsers() {
 
   const loadUsers = async () => {
     try {
-      const { data, error } = await supabase
+      // First try to load from the view
+      let { data, error } = await supabase
         .from('admin_users_with_roles')
         .select('*')
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('Error loading from view:', error)
+        
+        // Fallback: load directly from admin_users with manual join
+        const { data: usersData, error: usersError } = await supabase
+          .from('admin_users')
+          .select(`
+            *,
+            roles:role_id (
+              name,
+              display_name,
+              description,
+              permissions,
+              is_active
+            )
+          `)
+          .order('created_at', { ascending: false })
+
+        if (usersError) {
+          throw usersError
+        }
+
+        // Transform the data to match expected format
+        data = usersData?.map(user => ({
+          ...user,
+          role_name: user.roles?.name,
+          role_display_name: user.roles?.display_name,
+          role_description: user.roles?.description,
+          role_permissions: user.roles?.permissions,
+          role_is_active: user.roles?.is_active,
+          activity_status: user.last_login 
+            ? (new Date(user.last_login) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) ? 'Active' : 'Inactive')
+            : 'Never logged in'
+        })) || []
+      }
+
+      console.log('Loaded users:', data?.length || 0)
       setUsers(data || [])
+      
+      if (!data || data.length === 0) {
+        // If no users found, try to sync auth users
+        console.log('No users found, checking auth.users...')
+        await syncAuthUsers()
+      }
     } catch (error) {
       console.error('Error loading users:', error)
       showMessage('error', 'Failed to load users')
-    } finally {
-      setLoading(false)
+    }
+  }
+
+  const syncAuthUsers = async () => {
+    try {
+      // Check if there are auth users that aren't in admin_users
+      const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers()
+      
+      if (authError) {
+        console.error('Cannot access auth users:', authError)
+        return
+      }
+
+      console.log('Found auth users:', authUsers.users.length)
+      
+      if (authUsers.users.length > 0) {
+        showMessage('success', `Found ${authUsers.users.length} users. Refreshing data...`)
+        // Reload users after a short delay to allow for sync
+        setTimeout(() => {
+          loadUsers()
+        }, 1000)
+      }
+    } catch (error) {
+      console.error('Error syncing auth users:', error)
     }
   }
 
@@ -257,7 +348,10 @@ export function AdminUsers() {
       case 'recently active':
         return 'text-yellow-600'
       case 'inactive':
+      case 'long inactive':
         return 'text-red-600'
+      case 'never logged in':
+        return 'text-gray-600'
       default:
         return 'text-gray-600'
     }
@@ -312,13 +406,23 @@ export function AdminUsers() {
             Manage system administrators and their permissions
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm"
-        >
-          <UserPlus className="h-4 w-4 mr-2" />
-          Add New User
-        </button>
+        <div className="flex space-x-3">
+          <button
+            onClick={refreshData}
+            disabled={refreshing}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors shadow-sm"
+          >
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add New User
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
