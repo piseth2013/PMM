@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState } from 'react'
 
 type Language = 'en' | 'kh'
 
@@ -10,23 +10,23 @@ interface LanguageContextType {
 
 const translations = {
   en: {
+    // Auth
+    login: 'Login',
+    email: 'Email',
+    password: 'Password',
+    signIn: 'Sign In',
+    signOut: 'Sign Out',
+    loginError: 'Invalid email or password',
+    loading: 'Loading...',
+    
     // Navigation
     dashboard: 'Dashboard',
     members: 'Members',
     adminUsers: 'Admin Users',
     settings: 'Settings',
-    
-    // Auth
-    login: 'Sign In',
-    signIn: 'Sign In',
-    signOut: 'Sign Out',
-    email: 'Email',
-    password: 'Password',
-    loading: 'Loading...',
-    loginError: 'Invalid email or password',
+    memberManagement: 'Member Management',
     
     // General
-    memberManagement: 'Member Management',
     save: 'Save',
     cancel: 'Cancel',
     edit: 'Edit',
@@ -34,45 +34,44 @@ const translations = {
     add: 'Add',
     search: 'Search',
     filter: 'Filter',
-    refresh: 'Refresh',
+    export: 'Export',
+    import: 'Import',
     
-    // Users
-    addUser: 'Add User',
-    editUser: 'Edit User',
-    deleteUser: 'Delete User',
-    inviteAdmin: 'Add User', // Changed from 'Invite Admin'
-    fullName: 'Full Name',
-    role: 'Role',
-    status: 'Status',
-    created: 'Created',
-    lastLogin: 'Last Login',
-    actions: 'Actions',
+    // Member fields
+    name: 'Name',
+    position: 'Position',
+    partyBranch: 'Party Branch',
+    phone: 'Phone',
+    dateRegistration: 'Registration Date',
+    gender: 'Gender',
+    male: 'Male',
+    female: 'Female',
+    other: 'Other',
     
-    // Messages
-    success: 'Success',
-    error: 'Error',
-    userCreated: 'User created successfully',
-    userUpdated: 'User updated successfully',
-    userDeleted: 'User deleted successfully',
+    // Dashboard
+    totalMembers: 'Total Members',
+    newMembersThisMonth: 'New Members This Month',
+    activeAdmins: 'Active Admins',
+    recentActivity: 'Recent Activity',
   },
   kh: {
+    // Auth
+    login: 'ចូលប្រព័ន្ធ',
+    email: 'អ៊ីមែល',
+    password: 'ពាក្យសម្ងាត់',
+    signIn: 'ចូល',
+    signOut: 'ចេញ',
+    loginError: 'អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ',
+    loading: 'កំពុងផ្ទុក...',
+    
     // Navigation
     dashboard: 'ផ្ទាំងគ្រប់គ្រង',
     members: 'សមាជិក',
     adminUsers: 'អ្នកគ្រប់គ្រង',
     settings: 'ការកំណត់',
-    
-    // Auth
-    login: 'ចូលប្រព័ន្ធ',
-    signIn: 'ចូលប្រព័ន្ធ',
-    signOut: 'ចាកចេញ',
-    email: 'អ៊ីមែល',
-    password: 'ពាក្យសម្ងាត់',
-    loading: 'កំពុងផ្ទុក...',
-    loginError: 'អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ',
+    memberManagement: 'គ្រប់គ្រងសមាជិក',
     
     // General
-    memberManagement: 'គ្រប់គ្រងសមាជិក',
     save: 'រក្សាទុក',
     cancel: 'បោះបង់',
     edit: 'កែប្រែ',
@@ -80,26 +79,25 @@ const translations = {
     add: 'បន្ថែម',
     search: 'ស្វែងរក',
     filter: 'តម្រង',
-    refresh: 'ផ្ទុកឡើងវិញ',
+    export: 'នាំចេញ',
+    import: 'នាំចូល',
     
-    // Users
-    addUser: 'បន្ថែមអ្នកប្រើប្រាស់',
-    editUser: 'កែប្រែអ្នកប្រើប្រាស់',
-    deleteUser: 'លុបអ្នកប្រើប្រាស់',
-    inviteAdmin: 'បន្ថែមអ្នកប្រើប្រាស់', // Changed from 'អញ្ជើញអ្នកគ្រប់គ្រង'
-    fullName: 'ឈ្មោះពេញ',
-    role: 'តួនាទី',
-    status: 'ស្ថានភាព',
-    created: 'បានបង្កើត',
-    lastLogin: 'ចូលចុងក្រោយ',
-    actions: 'សកម្មភាព',
+    // Member fields
+    name: 'ឈ្មោះ',
+    position: 'តួនាទី',
+    partyBranch: 'សាខាគណបក្ស',
+    phone: 'ទូរស័ព្ទ',
+    dateRegistration: 'កាលបរិច្ឆេទចុះឈ្មោះ',
+    gender: 'ភេទ',
+    male: 'ប្រុស',
+    female: 'ស្រី',
+    other: 'ផ្សេងទៀត',
     
-    // Messages
-    success: 'ជោគជ័យ',
-    error: 'កំហុស',
-    userCreated: 'បានបង្កើតអ្នកប្រើប្រាស់ដោយជោគជ័យ',
-    userUpdated: 'បានកែប្រែអ្នកប្រើប្រាស់ដោយជោគជ័យ',
-    userDeleted: 'បានលុបអ្នកប្រើប្រាស់ដោយជោគជ័យ',
+    // Dashboard
+    totalMembers: 'សមាជិកសរុប',
+    newMembersThisMonth: 'សមាជិកថ្មីខែនេះ',
+    activeAdmins: 'អ្នកគ្រប់គ្រងសកម្ម',
+    recentActivity: 'សកម្មភាពថ្មីៗ',
   }
 }
 
@@ -116,26 +114,14 @@ export function useLanguage() {
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en')
 
-  useEffect(() => {
-    const savedLanguage = localStorage.getItem('language') as Language
-    if (savedLanguage && (savedLanguage === 'en' || savedLanguage === 'kh')) {
-      setLanguage(savedLanguage)
-    }
-  }, [])
-
-  const handleSetLanguage = (lang: Language) => {
-    setLanguage(lang)
-    localStorage.setItem('language', lang)
-  }
-
   const t = (key: string): string => {
-    return translations[language][key as keyof typeof translations[typeof language]] || key
+    return translations[language][key as keyof typeof translations['en']] || key
   }
 
   const value = {
     language,
-    setLanguage: handleSetLanguage,
-    t
+    setLanguage,
+    t,
   }
 
   return (

@@ -1,22 +1,22 @@
 import React from 'react'
 import { useLanguage } from '../contexts/LanguageContext'
-import { UserCog, Plus, Search, Filter } from 'lucide-react'
+import { Users, Plus, Search, Filter } from 'lucide-react'
 
-export function AdminUsers() {
+export function Members() {
   const { t } = useLanguage()
 
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">{t('adminUsers')}</h1>
+          <h1 className="text-3xl font-bold text-gray-900">{t('members')}</h1>
           <p className="mt-2 text-gray-600">
-            Manage system administrators and their permissions
+            Manage party members and their information
           </p>
         </div>
         <button className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700">
           <Plus className="h-4 w-4 mr-2" />
-          Add Admin
+          {t('add')} {t('members')}
         </button>
       </div>
 
@@ -28,7 +28,7 @@ export function AdminUsers() {
                 <Search className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search admins..."
+                  placeholder={`${t('search')} ${t('members')}...`}
                   className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -45,16 +45,19 @@ export function AdminUsers() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Admin
+                  {t('name')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Role
+                  {t('position')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Login
+                  {t('partyBranch')}
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                  {t('phone')}
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  {t('dateRegistration')}
                 </th>
                 <th className="relative px-6 py-3">
                   <span className="sr-only">Actions</span>
@@ -69,26 +72,25 @@ export function AdminUsers() {
                       <div className="h-10 w-10 bg-gray-200 rounded-full mr-4"></div>
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          Admin {i}
+                          Member {i}
                         </div>
                         <div className="text-sm text-gray-500">
-                          admin{i}@example.com
+                          member{i}@example.com
                         </div>
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {i === 1 ? 'Super Admin' : 'Admin'}
-                    </span>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    Position {i}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    Branch {i}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    +855 12 345 67{i}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     2024-01-{i.toString().padStart(2, '0')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                      Active
-                    </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button className="text-blue-600 hover:text-blue-900 mr-4">
