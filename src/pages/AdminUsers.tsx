@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { 
   UserPlus, 
@@ -13,7 +14,10 @@ import {
   EyeOff,
   X,
   Save,
-  User
+  User,
+  Mail,
+  Calendar,
+  Clock
 } from 'lucide-react'
 
 interface AdminUser {
@@ -40,6 +44,7 @@ interface Role {
 
 export function AdminUsers() {
   const { t } = useLanguage()
+  const { user: currentUser } = useAuth()
   const [users, setUsers] = useState<AdminUser[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [loading, setLoading] = useState(true)
@@ -68,6 +73,7 @@ export function AdminUsers() {
     role_id: ''
   })
   const [updatingUser, setUpdatingUser] = useState(false)
+  const [deletingUserState, setDeletingUserState] = useState(false)
 
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
@@ -116,14 +122,26 @@ export function AdminUsers() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (newUser.password.length < 6) {
+      showMessage('error', 'Password must be at least 6 characters long')
+      return
+    }
+
     setAddingUser(true)
 
     try {
-      // Create user in Supabase Auth
+      // Create user in Supabase Auth with admin metadata
       const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: newUser.email,
         password: newUser.password,
-        email_confirm: true
+        email_confirm: true,
+        user_metadata: {
+          full_name: newUser.full_name
+        },
+        app_metadata: {
+          is_admin: true
+        }
       })
 
       if (authError) throw authError
@@ -132,15 +150,17 @@ export function AdminUsers() {
         throw new Error('Failed to create user')
       }
 
-      // Add user to admin_users table
+      // The trigger will automatically create the admin_users record
+      // But we'll also manually insert to ensure it's there with the correct role
       const { error: dbError } = await supabase
         .from('admin_users')
-        .insert({
+        .upsert({
           id: authData.user.id,
           email: newUser.email,
           full_name: newUser.full_name,
           role_id: newUser.role_id,
-          invited_by: (await supabase.auth.getUser()).data.user?.id
+          invited_by: currentUser?.id,
+          created_at: authData.user.created_at
         })
 
       if (dbError) throw dbError
@@ -148,6 +168,7 @@ export function AdminUsers() {
       showMessage('success', 'User added successfully')
       setShowAddModal(false)
       setNewUser({ email: '', full_name: '', password: '', role_id: '' })
+      setShowPassword(false)
       loadUsers()
     } catch (error: any) {
       console.error('Error adding user:', error)
@@ -164,11 +185,21 @@ export function AdminUsers() {
     setUpdatingUser(true)
 
     try {
-      // Update user email in Supabase Auth if changed
+      // Update user in Supabase Auth
+      const authUpdates: any = {}
+      
       if (editUser.email !== editingUser.email) {
+        authUpdates.email = editUser.email
+      }
+      
+      if (editUser.full_name !== editingUser.full_name) {
+        authUpdates.user_metadata = { full_name: editUser.full_name }
+      }
+
+      if (Object.keys(authUpdates).length > 0) {
         const { error: authError } = await supabase.auth.admin.updateUserById(
           editingUser.id,
-          { email: editUser.email }
+          authUpdates
         )
         if (authError) throw authError
       }
@@ -200,20 +231,12 @@ export function AdminUsers() {
   const handleDeleteUser = async () => {
     if (!deletingUser) return
 
+    setDeletingUserState(true)
+
     try {
-      // Delete from admin_users table (this will cascade due to foreign key)
-      const { error: dbError } = await supabase
-        .from('admin_users')
-        .delete()
-        .eq('id', deletingUser.id)
-
-      if (dbError) throw dbError
-
-      // Delete from Supabase Auth
+      // Delete from Supabase Auth (this will trigger the deletion from admin_users via trigger)
       const { error: authError } = await supabase.auth.admin.deleteUser(deletingUser.id)
-      if (authError) {
-        console.warn('Warning: User deleted from database but not from auth:', authError)
-      }
+      if (authError) throw authError
 
       showMessage('success', 'User deleted successfully')
       setShowDeleteModal(false)
@@ -222,6 +245,8 @@ export function AdminUsers() {
     } catch (error: any) {
       console.error('Error deleting user:', error)
       showMessage('error', error.message || 'Failed to delete user')
+    } finally {
+      setDeletingUserState(false)
     }
   }
 
@@ -237,6 +262,7 @@ export function AdminUsers() {
 
   const openDeleteModal = (user: AdminUser) => {
     setDeletingUser(user)
+    setShowDeleteModal(false)
     setShowDeleteModal(true)
   }
 
@@ -267,10 +293,10 @@ export function AdminUsers() {
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
         >
           <UserPlus className="h-4 w-4 mr-2" />
-          Add User
+          Add New User
         </button>
       </div>
 
@@ -281,7 +307,18 @@ export function AdminUsers() {
             ? 'bg-green-50 border-green-200 text-green-800' 
             : 'bg-red-50 border-red-200 text-red-800'
         }`}>
-          {message.text}
+          <div className="flex">
+            <div className="flex-shrink-0">
+              {message.type === 'success' ? (
+                <div className="h-5 w-5 text-green-400">✓</div>
+              ) : (
+                <div className="h-5 w-5 text-red-400">✕</div>
+              )}
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium">{message.text}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -293,10 +330,10 @@ export function AdminUsers() {
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
               <input
                 type="text"
-                placeholder="Search users..."
+                placeholder="Search by name or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
           </div>
@@ -304,7 +341,7 @@ export function AdminUsers() {
             <select
               value={selectedRole}
               onChange={(e) => setSelectedRole(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Roles</option>
               {roles.map((role) => (
@@ -342,19 +379,22 @@ export function AdminUsers() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredUsers.map((user) => (
-                <tr key={user.id} className="hover:bg-gray-50">
+                <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div className="h-10 w-10 flex-shrink-0">
-                        <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
-                          <User className="h-5 w-5 text-gray-600" />
+                        <div className="h-10 w-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center">
+                          <span className="text-white font-medium text-sm">
+                            {user.full_name.charAt(0).toUpperCase()}
+                          </span>
                         </div>
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">
                           {user.full_name}
                         </div>
-                        <div className="text-sm text-gray-500">
+                        <div className="text-sm text-gray-500 flex items-center">
+                          <Mail className="h-3 w-3 mr-1" />
                           {user.email}
                         </div>
                       </div>
@@ -363,26 +403,34 @@ export function AdminUsers() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       <Shield className="h-3 w-3 mr-1" />
-                      {user.role_display_name}
+                      {user.role_display_name || user.role_name}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(user.created_at).toLocaleDateString()}
+                    <div className="flex items-center">
+                      <Calendar className="h-3 w-3 mr-1" />
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}
+                    <div className="flex items-center">
+                      <Clock className="h-3 w-3 mr-1" />
+                      {user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">
                       <button
                         onClick={() => openEditModal(user)}
-                        className="text-blue-600 hover:text-blue-900"
+                        className="text-blue-600 hover:text-blue-900 p-1 rounded-md hover:bg-blue-50 transition-colors"
+                        title="Edit user"
                       >
                         <Edit className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => openDeleteModal(user)}
-                        className="text-red-600 hover:text-red-900"
+                        className="text-red-600 hover:text-red-900 p-1 rounded-md hover:bg-red-50 transition-colors"
+                        title="Delete user"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -401,6 +449,17 @@ export function AdminUsers() {
             <p className="mt-1 text-sm text-gray-500">
               {searchTerm || selectedRole ? 'Try adjusting your search criteria.' : 'Get started by adding a new user.'}
             </p>
+            {!searchTerm && !selectedRole && (
+              <div className="mt-6">
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add your first user
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -412,7 +471,11 @@ export function AdminUsers() {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-medium text-gray-900">Add New User</h3>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={() => {
+                  setShowAddModal(false)
+                  setNewUser({ email: '', full_name: '', password: '', role_id: '' })
+                  setShowPassword(false)
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="h-6 w-6" />
@@ -422,35 +485,35 @@ export function AdminUsers() {
             <form onSubmit={handleAddUser} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
+                  Full Name *
                 </label>
                 <input
                   type="text"
                   required
                   value={newUser.full_name}
                   onChange={(e) => setNewUser(prev => ({ ...prev, full_name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter full name"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email
+                  Email Address *
                 </label>
                 <input
                   type="email"
                   required
                   value={newUser.email}
                   onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter email address"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Password
+                  Password *
                 </label>
                 <div className="relative">
                   <input
@@ -458,7 +521,7 @@ export function AdminUsers() {
                     required
                     value={newUser.password}
                     onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter password"
                     minLength={6}
                   />
@@ -468,9 +531,9 @@ export function AdminUsers() {
                     className="absolute inset-y-0 right-0 pr-3 flex items-center"
                   >
                     {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-gray-400" />
+                      <EyeOff className="h-4 w-4 text-gray-400 hover:text-gray-600" />
                     ) : (
-                      <Eye className="h-4 w-4 text-gray-400" />
+                      <Eye className="h-4 w-4 text-gray-400 hover:text-gray-600" />
                     )}
                   </button>
                 </div>
@@ -481,18 +544,19 @@ export function AdminUsers() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Role
+                  Role *
                 </label>
                 <select
                   required
                   value={newUser.role_id}
                   onChange={(e) => setNewUser(prev => ({ ...prev, role_id: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   <option value="">Select a role</option>
                   {roles.map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.display_name}
+                      {role.description && ` - ${role.description}`}
                     </option>
                   ))}
                 </select>
@@ -501,17 +565,28 @@ export function AdminUsers() {
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  onClick={() => {
+                    setShowAddModal(false)
+                    setNewUser({ email: '', full_name: '', password: '', role_id: '' })
+                    setShowPassword(false)
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={addingUser}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {addingUser ? 'Adding...' : 'Add User'}
+                  {addingUser ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Adding...
+                    </div>
+                  ) : (
+                    'Add User'
+                  )}
                 </button>
               </div>
             </form>
@@ -536,43 +611,44 @@ export function AdminUsers() {
             <form onSubmit={handleEditUser} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name
+                  Full Name *
                 </label>
                 <input
                   type="text"
                   required
                   value={editUser.full_name}
                   onChange={(e) => setEditUser(prev => ({ ...prev, full_name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email
+                  Email Address *
                 </label>
                 <input
                   type="email"
                   required
                   value={editUser.email}
                   onChange={(e) => setEditUser(prev => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Role
+                  Role *
                 </label>
                 <select
                   required
                   value={editUser.role_id}
                   onChange={(e) => setEditUser(prev => ({ ...prev, role_id: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
                   {roles.map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.display_name}
+                      {role.description && ` - ${role.description}`}
                     </option>
                   ))}
                 </select>
@@ -582,16 +658,23 @@ export function AdminUsers() {
                 <button
                   type="button"
                   onClick={() => setShowEditModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={updatingUser}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {updatingUser ? 'Updating...' : 'Update User'}
+                  {updatingUser ? (
+                    <div className="flex items-center">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Updating...
+                    </div>
+                  ) : (
+                    'Update User'
+                  )}
                 </button>
               </div>
             </form>
@@ -614,24 +697,40 @@ export function AdminUsers() {
             </div>
 
             <div className="mb-4">
+              <div className="flex items-center mb-3">
+                <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center mr-3">
+                  <Trash2 className="h-5 w-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{deletingUser.full_name}</p>
+                  <p className="text-sm text-gray-500">{deletingUser.email}</p>
+                </div>
+              </div>
               <p className="text-sm text-gray-600">
-                Are you sure you want to delete <strong>{deletingUser.full_name}</strong>? 
-                This action cannot be undone.
+                Are you sure you want to delete this user? This action cannot be undone and will remove the user from both the system and authentication.
               </p>
             </div>
 
             <div className="flex justify-end space-x-3">
               <button
                 onClick={() => setShowDeleteModal(false)}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDeleteUser}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                disabled={deletingUserState}
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Delete User
+                {deletingUserState ? (
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Deleting...
+                  </div>
+                ) : (
+                  'Delete User'
+                )}
               </button>
             </div>
           </div>
