@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { createUserWithAdmin } from '../lib/userManagement'
+import { AddUserModal } from '../components/Users/AddUserModal'
 import { 
   UserPlus, 
   Search, 
@@ -69,16 +71,6 @@ export function AdminUsers() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deletingUser, setDeletingUser] = useState<AdminUser | null>(null)
-
-  // Add User Form State
-  const [newUser, setNewUser] = useState({
-    email: '',
-    full_name: '',
-    password: '',
-    role_id: ''
-  })
-  const [showPassword, setShowPassword] = useState(false)
-  const [addingUser, setAddingUser] = useState(false)
 
   // Edit User Form State
   const [editUser, setEditUser] = useState({
@@ -149,103 +141,6 @@ export function AdminUsers() {
     } finally {
       setLoading(false)
     }
-  }
-
-  const validateUserForm = () => {
-    if (!newUser.email.trim()) {
-      showMessage('error', 'Email is required')
-      return false
-    }
-    
-    if (!newUser.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-      showMessage('error', 'Please enter a valid email address')
-      return false
-    }
-    
-    if (!newUser.full_name.trim()) {
-      showMessage('error', 'Full name is required')
-      return false
-    }
-    
-    if (newUser.password.length < 6) {
-      showMessage('error', 'Password must be at least 6 characters long')
-      return false
-    }
-    
-    if (!newUser.role_id) {
-      showMessage('error', 'Please select a role')
-      return false
-    }
-
-    return true
-  }
-
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!validateUserForm()) return
-
-    setAddingUser(true)
-
-    try {
-      // Validate user creation on the backend
-      const { error: validationError } = await supabase.rpc('validate_user_creation', {
-        p_email: newUser.email,
-        p_full_name: newUser.full_name,
-        p_role_id: newUser.role_id
-      })
-
-      if (validationError) throw validationError
-
-      // Create user in Supabase Auth with admin metadata
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: newUser.email,
-        password: newUser.password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: newUser.full_name
-        },
-        app_metadata: {
-          is_admin: true
-        }
-      })
-
-      if (authError) throw authError
-
-      if (!authData.user) {
-        throw new Error('Failed to create user')
-      }
-
-      // The trigger will automatically create the admin_users record
-      // But we'll also manually insert to ensure it's there with the correct role
-      const { error: dbError } = await supabase
-        .from('admin_users')
-        .upsert({
-          id: authData.user.id,
-          email: newUser.email,
-          full_name: newUser.full_name,
-          role_id: newUser.role_id,
-          invited_by: currentUser?.id,
-          created_at: authData.user.created_at
-        })
-
-      if (dbError) throw dbError
-
-      showMessage('success', `User "${newUser.full_name}" has been created successfully`)
-      setShowAddModal(false)
-      resetAddUserForm()
-      loadUsers()
-    } catch (error: any) {
-      console.error('Error adding user:', error)
-      showMessage('error', error.message || 'Failed to add user')
-    } finally {
-      setAddingUser(false)
-    }
-  }
-
-  const resetAddUserForm = () => {
-    setNewUser({ email: '', full_name: '', password: '', role_id: '' })
-    setShowPassword(false)
   }
 
   const handleEditUser = async (e: React.FormEvent) => {
@@ -393,6 +288,11 @@ export function AdminUsers() {
     const matchesRole = selectedRole === '' || user.role_id === selectedRole
     return matchesSearch && matchesRole
   })
+
+  const handleAddUserSuccess = () => {
+    loadUsers()
+    showMessage('success', 'User created successfully')
+  }
 
   if (loading) {
     return (
@@ -580,7 +480,7 @@ export function AdminUsers() {
                         </div>
                         {user.invited_by_name && (
                           <div className="text-xs text-gray-400">
-                            Invited by {user.invited_by_name}
+                            Created by {user.invited_by_name}
                           </div>
                         )}
                       </div>
@@ -660,132 +560,12 @@ export function AdminUsers() {
       </div>
 
       {/* Add User Modal */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Add New User</h3>
-              <button
-                onClick={() => {
-                  setShowAddModal(false)
-                  resetAddUserForm()
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddUser} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newUser.full_name}
-                  onChange={(e) => setNewUser(prev => ({ ...prev, full_name: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter full name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address *
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={newUser.email}
-                  onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter email address"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Password *
-                </label>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={newUser.password}
-                    onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter password"
-                    minLength={6}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-gray-400 hover:text-gray-600" />
-                    ) : (
-                      <Eye className="h-4 w-4 text-gray-400 hover:text-gray-600" />
-                    )}
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Password must be at least 6 characters long
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Role *
-                </label>
-                <select
-                  required
-                  value={newUser.role_id}
-                  onChange={(e) => setNewUser(prev => ({ ...prev, role_id: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select a role</option>
-                  {getAvailableRoles().map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.display_name}
-                      {role.description && ` - ${role.description}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddModal(false)
-                    resetAddUserForm()
-                  }}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={addingUser}
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {addingUser ? (
-                    <div className="flex items-center">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Creating...
-                    </div>
-                  ) : (
-                    'Create User'
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AddUserModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSuccess={handleAddUserSuccess}
+        availableRoles={getAvailableRoles()}
+      />
 
       {/* Edit User Modal */}
       {showEditModal && editingUser && (
