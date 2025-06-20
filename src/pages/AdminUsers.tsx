@@ -266,6 +266,25 @@ export function AdminUsers() {
     setShowDeleteModal(true)
   }
 
+  const getRoleDisplayName = (user: AdminUser) => {
+    // Prioritize role_display_name, then role_name, then fallback
+    return user.role_display_name || user.role_name || 'Unknown Role'
+  }
+
+  const getRoleBadgeColor = (roleName: string) => {
+    switch (roleName?.toLowerCase()) {
+      case 'super_admin':
+      case 'super admin':
+        return 'bg-purple-100 text-purple-800'
+      case 'admin':
+        return 'bg-blue-100 text-blue-800'
+      case 'moderator':
+        return 'bg-green-100 text-green-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          user.email.toLowerCase().includes(searchTerm.toLowerCase())
@@ -401,9 +420,9 @@ export function AdminUsers() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(user.role_name || '')}`}>
                       <Shield className="h-3 w-3 mr-1" />
-                      {user.role_display_name || user.role_name}
+                      {getRoleDisplayName(user)}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
